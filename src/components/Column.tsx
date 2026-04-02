@@ -15,22 +15,29 @@ interface Props {
   onTaskClick: (task: Task) => void
 }
 
+const COLUMN_ACCENT: Record<Status, string> = {
+  todo: styles.accentTodo,
+  in_progress: styles.accentInProgress,
+  in_review: styles.accentInReview,
+  done: styles.accentDone,
+}
+
 export function Column({ id, label, color, tasks, members, onAddTask, onTaskClick }: Props) {
   const { setNodeRef, isOver } = useDroppable({ id })
 
   return (
-    <div className={`${styles.column} ${isOver ? styles.columnOver : ''}`}>
+    <div className={`${styles.column} ${COLUMN_ACCENT[id]} ${isOver ? styles.columnOver : ''}`}>
       <div className={styles.header}>
         <div className={styles.headerLeft}>
           <div className={styles.dot} style={{ background: color }} />
           <span className={styles.title}>{label}</span>
-        </div>
-        <div className={styles.headerRight}>
           <span className={styles.count}>{tasks.length}</span>
-          <button className={styles.addBtn} onClick={() => onAddTask(id)}>
-            +
-          </button>
         </div>
+        <button className={styles.addBtn} onClick={() => onAddTask(id)}>
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+            <path d="M5 1v8M1 5h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+          </svg>
+        </button>
       </div>
 
       <div ref={setNodeRef} className={styles.body}>
@@ -48,11 +55,12 @@ export function Column({ id, label, color, tasks, members, onAddTask, onTaskClic
           ))}
         </SortableContext>
 
-        <button
-          className={styles.inlineAddBtn}
-          onClick={() => onAddTask(id)}
-        >
-          <div className={styles.inlineAddIcon}>+</div>
+        <button className={styles.inlineAddBtn} onClick={() => onAddTask(id)}>
+          <span className={styles.inlineAddIcon}>
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+              <path d="M5 1v8M1 5h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+          </span>
         </button>
 
         {tasks.length === 0 && (

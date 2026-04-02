@@ -1,14 +1,18 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import {
   DndContext,
   closestCorners,
   PointerSensor,
+  MouseSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   DragOverlay,
   type DragEndEvent,
   type DragStartEvent,
+  type DragOverEvent,
 } from '@dnd-kit/core'
+import { arrayMove } from '@dnd-kit/sortable'
 import { supabase } from '../lib/supabase'
 import { Column } from './Column'
 import { AddTaskModal } from './AddTaskModal'
@@ -40,18 +44,46 @@ export function Board({ userId }: Props) {
   const [taskVersion, setTaskVersion] = useState(0)
   const [filters, setFilters] = useState<ActiveFilters>(EMPTY_FILTERS)
   const [activeTask, setActiveTask] = useState<Task | null>(null)
+  const [optimisticOrder, setOptimisticOrder] = useState<Task[] | null>(null)
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    const saved = localStorage.getItem('kanban-theme')
+    return (saved === 'light' ? 'light' : 'dark')
+  })
+
+  // Apply theme attribute on mount and whenever theme changes
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme === 'light' ? 'light' : '')
+  }, [theme])
+
+  // Apply theme to root
+  const toggleTheme = () => {
+    setTheme(prev => {
+      const next = prev === 'dark' ? 'light' : 'dark'
+      localStorage.setItem('kanban-theme', next)
+      return next
+    })
+  }
+
+  // Reset optimistic order whenever real tasks change (after refetch)
+  const displayTasks = optimisticOrder ?? tasks
 
   const { members, createMember, deleteMember } = useTeamMembers(userId)
   const { labels, createLabel  } = useLabels(userId)
 
   const sensors = useSensors(
+    useSensor(MouseSensor, {
+      activationConstraint: { distance: 4 },
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 150, tolerance: 8 },
+    }),
     useSensor(PointerSensor, {
-      activationConstraint: { distance: 5 },
+      activationConstraint: { distance: 4 },
     })
   )
 
   const filteredTasks = useMemo(() => {
-    let result = tasks
+    let result = displayTasks
 
     // Search
     if (search.trim()) {
@@ -80,7 +112,7 @@ export function Board({ userId }: Props) {
     }
 
     return result
-  }, [tasks, search, filters])
+  }, [displayTasks, search, filters])
 
   const tasksByColumn = useMemo(() => {
     return COLUMNS.reduce((acc, col) => {
@@ -101,40 +133,87 @@ export function Board({ userId }: Props) {
   }, [tasks])
 
   const handleDragStart = (event: DragStartEvent) => {
-    const task = tasks.find(t => t.id === event.active.id)
+    const task = displayTasks.find(t => t.id === event.active.id)
     if (task) setActiveTask(task)
   }
 
-  const handleDragEnd = async (event: DragEndEvent) => {
-    setActiveTask(null)
+  const handleDragOver = (event: DragOverEvent) => {
     const { active, over } = event
     if (!over) return
 
     const taskId = active.id as string
     const overId = over.id as string
-    
-    const isColumn = COLUMNS.some(c => c.id === overId)
-    const targetStatus = isColumn
+    if (taskId === overId) return
+
+    const isOverColumn = COLUMNS.some(c => c.id === overId)
+    const draggingTask = displayTasks.find(t => t.id === taskId)
+    if (!draggingTask) return
+
+    const targetStatus = isOverColumn
       ? overId as Status
-      : tasks.find(t => t.id === overId)?.status
+      : displayTasks.find(t => t.id === overId)?.status
 
-    if (!targetStatus) return
+    if (!targetStatus || draggingTask.status === targetStatus) return
 
-    const task = tasks.find(t => t.id === taskId)
-    
-    if (!task) return
-    if (task.status === targetStatus) return
+    // Live preview: move task into target column optimistically
+    setOptimisticOrder(prev => {
+      const base = prev ?? tasks
+      return base.map(t => t.id === taskId ? { ...t, status: targetStatus } : t)
+    })
+  }
 
-    await moveTask(taskId, targetStatus)
-    await supabase
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event
+
+    if (!over) {
+      // Dropped outside — revert optimistic
+      setOptimisticOrder(null)
+      setActiveTask(null)
+      return
+    }
+
+    const taskId = active.id as string
+    const overId = over.id as string
+
+    const isColumn = COLUMNS.some(c => c.id === overId)
+    const currentDisplay = optimisticOrder ?? tasks
+    const task = currentDisplay.find(t => t.id === taskId)
+    if (!task) { setActiveTask(null); return }
+
+    const originalTask = tasks.find(t => t.id === taskId)
+    if (!originalTask) { setActiveTask(null); return }
+
+    // Cross-column move — persist to DB
+    if (originalTask.status !== task.status) {
+      setActiveTask(null)
+      await moveTask(taskId, task.status)
+      setOptimisticOrder(null)
+      await supabase
         .from('activity_log')
         .insert({
-        task_id: taskId,
-        user_id: userId,
-        action: 'status_changed',
-        meta: { from: task.status, to: targetStatus },
+          task_id: taskId,
+          user_id: userId,
+          action: 'status_changed',
+          meta: { from: originalTask.status, to: task.status },
         })
-    
+      return
+    }
+
+    // Same-column reorder
+    if (!isColumn && taskId !== overId) {
+      const columnTasks = currentDisplay.filter(t => t.status === task.status)
+      const oldIndex = columnTasks.findIndex(t => t.id === taskId)
+      const newIndex = columnTasks.findIndex(t => t.id === overId)
+      if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
+        const reordered = arrayMove(columnTasks, oldIndex, newIndex)
+        const otherTasks = currentDisplay.filter(t => t.status !== task.status)
+        setOptimisticOrder([...otherTasks, ...reordered])
+      }
+    } else {
+      setOptimisticOrder(null)
+    }
+
+    setActiveTask(null)
   }
 
   const handleAddTask = async (taskData: any) => {
@@ -153,9 +232,8 @@ export function Board({ userId }: Props) {
  const handleUpdateTask = async (id: string, updates: Partial<Task>) => {
   const result = await updateTask(id, updates)
   if (!result.error) {
+    setOptimisticOrder(null)
     await refetch()
-    console.log('Updated task:', id, 'with:', updates)
-    console.log('Tasks after refetch:', tasks.find(t => t.id === id))
     setSelectedTask(prev => {
       if (!prev || prev.id !== id) return prev
       return { ...prev, ...updates }
@@ -224,6 +302,15 @@ export function Board({ userId }: Props) {
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
+            {search && (
+              <button
+                className={styles.searchClearBtn}
+                onClick={() => setSearch('')}
+                title="Clear search"
+              >
+                ×
+              </button>
+            )}
           </div>
           <FilterPanel
             filters={filters}
@@ -233,19 +320,7 @@ export function Board({ userId }: Props) {
           />
           <button
             onClick={() => setShowTeamPanel(true)}
-            style={{
-                background: 'none',
-                border: '0.5px solid var(--border-default)',
-                borderRadius: 'var(--radius-md)',
-                padding: '5px 10px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                color: 'var(--text-muted)',
-                fontSize: '12px',
-                fontFamily: 'inherit',
-            }}
+            className={styles.teamBtn}
             >
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
                 <circle cx="6" cy="5" r="3" stroke="#666880" strokeWidth="1.5"/>
@@ -255,6 +330,22 @@ export function Board({ userId }: Props) {
             </svg>
             Team
             </button>
+          <button
+            onClick={toggleTheme}
+            className={styles.themeBtn}
+            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {theme === 'dark' ? (
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                <circle cx="8" cy="8" r="3.5" stroke="currentColor" strokeWidth="1.5"/>
+                <path d="M8 1v1.5M8 13.5V15M1 8h1.5M13.5 8H15M3.1 3.1l1.1 1.1M11.8 11.8l1.1 1.1M11.8 3.1l-1.1 1.1M3.1 11.8l1.1-1.1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              </svg>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                <path d="M13.5 8.5A5.5 5.5 0 017 2a5.5 5.5 0 100 11 5.5 5.5 0 006.5-4.5z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              </svg>
+            )}
+          </button>
           <div className={styles.avatar}>
             {userId.slice(0, 2).toUpperCase()}
           </div>
@@ -274,6 +365,7 @@ export function Board({ userId }: Props) {
         sensors={sensors}
         collisionDetection={closestCorners}
         onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
       >
         <div className={styles.columns}>
@@ -291,16 +383,20 @@ export function Board({ userId }: Props) {
           ))}
         </div>
 
-        <DragOverlay dropAnimation={{
-          duration: 150,
-          easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)',
-        }}>
+        <DragOverlay
+          dropAnimation={{
+            duration: 200,
+            easing: 'cubic-bezier(0.2, 0, 0, 1)',
+          }}
+        >
           {activeTask ? (
-            <TaskCard
-              task={activeTask}
-              members={members}
-              onClick={() => {}}
-            />
+            <div style={{ transform: 'rotate(1.5deg)', opacity: 0.95, boxShadow: '0 12px 32px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.3)', borderRadius: '8px', cursor: 'grabbing' }}>
+              <TaskCard
+                task={activeTask}
+                members={members}
+                onClick={() => {}}
+              />
+            </div>
           ) : null}
         </DragOverlay>
       </DndContext>

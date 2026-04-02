@@ -43,20 +43,35 @@ function formatTime(dateStr: string) {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
+const STATUS_LABELS: Record<string, string> = {
+  todo: 'To Do',
+  in_progress: 'In Progress',
+  in_review: 'In Review',
+  done: 'Done',
+}
+
+const PRIORITY_LABELS: Record<string, string> = {
+  low: 'Low',
+  normal: 'Normal',
+  high: 'High',
+}
+
 function formatAction(action: string, meta?: Record<string, any>): string {
   switch (action) {
     case "created":
       return "created this task";
     case "status_changed":
-      return `moved to ${meta?.to ?? ""}`;
+      return `moved to ${STATUS_LABELS[meta?.to] ?? meta?.to ?? ""}`;
     case "priority_changed":
-      return `changed priority to ${meta?.to ?? ""}`;
+      return `changed priority to ${PRIORITY_LABELS[meta?.to] ?? meta?.to ?? ""}`;
     case "assignee_changed":
       return meta?.to ? `assigned to ${meta.to}` : "removed assignee";
     case "title_changed":
       return "updated the title";
     case "description_changed":
       return "updated the description";
+    case "date_changed":
+      return meta?.to ? `set due date to ${meta.to}` : "removed due date";
     case "labels_added":
       return `added labels: ${meta?.labels?.join(", ") ?? ""}`;
     case "labels_removed":
@@ -90,7 +105,6 @@ export function TaskDetailModal({
   const [showConfirm, setShowConfirm] = useState(false);
   const [commentText, setCommentText] = useState("");
   const [showAssigneeDropdown, setShowAssigneeDropdown] = useState(false)
-  const [selectedMemberId] = useState<string | undefined>(undefined);
   const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>(
     task.labels?.map((l) => l.id) ?? [],
   );
@@ -140,6 +154,12 @@ export function TaskDetailModal({
     if (title !== task.title) {
       await logActivity(userId, "title_changed", {});
     }
+    if (description !== (task.description ?? "")) {
+      await logActivity(userId, "description_changed", {});
+    }
+    if (dueDate !== (task.due_date ?? "")) {
+      await logActivity(userId, "date_changed", { to: dueDate || null });
+    }
     if (labelsChanged) {
       const addedLabels = selectedLabelIds.filter(
         (id) => !initialLabelIds.includes(id),
@@ -187,7 +207,7 @@ export function TaskDetailModal({
 
   const handleAddComment = async () => {
     if (!commentText.trim()) return;
-    await addComment(commentText.trim(), userId, selectedMemberId);
+    await addComment(commentText.trim(), userId, undefined);
     setCommentText("");
   };
 
@@ -233,7 +253,7 @@ export function TaskDetailModal({
                   className={styles.titleInput}
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder="Task title"
+                  placeholder="Title"
                   rows={2}
                 />
 

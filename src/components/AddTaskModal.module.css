@@ -128,7 +128,6 @@
   color: var(--text-primary);
   outline: none;
   font-family: inherit;
-  color-scheme: dark;
   transition: border-color 0.15s;
 }
 
