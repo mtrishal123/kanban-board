@@ -1,0 +1,19 @@
+.date {
+  font-size: 10px;
+}
+
+.normal {
+  color: var(--due-normal);
+}
+
+.soon {
+  color: var(--due-soon);
+}
+
+.overdue {
+  color: var(--due-overdue);
+}
+
+.done {
+  color: var(--due-done);
+}

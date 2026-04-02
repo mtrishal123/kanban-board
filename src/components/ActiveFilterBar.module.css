@@ -1,0 +1,73 @@
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 24px;
+  border-bottom: 0.5px solid var(--border-default);
+  background: var(--bg-secondary);
+  flex-wrap: wrap;
+}
+
+.pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px 3px 10px;
+  background: var(--bg-card);
+  border: 0.5px solid var(--border-default);
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.pillDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.pillAvatar {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 7px;
+  font-weight: 500;
+  color: white;
+}
+
+.removeBtn {
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  margin-left: 2px;
+  transition: color 0.15s;
+}
+
+.removeBtn:hover {
+  color: var(--text-primary);
+}
+
+.clearAll {
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 11px;
+  font-family: inherit;
+  padding: 3px 6px;
+  border-radius: var(--radius-md);
+  transition: color 0.15s;
+}
+
+.clearAll:hover {
+  color: var(--priority-high-text);
+}

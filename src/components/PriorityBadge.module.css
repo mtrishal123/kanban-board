@@ -1,0 +1,21 @@
+.badge {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+}
+
+.high {
+  background: var(--priority-high-bg);
+  color: var(--priority-high-text);
+}
+
+.normal {
+  background: var(--priority-normal-bg);
+  color: var(--priority-normal-text);
+}
+
+.low {
+  background: var(--priority-low-bg);
+  color: var(--priority-low-text);
+}
